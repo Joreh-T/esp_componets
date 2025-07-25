@@ -129,7 +129,7 @@
 #define LINENOISE_DEFAULT_MAX_LINE 4096
 #define LINENOISE_MINIMAL_MAX_LINE 64
 #define LINENOISE_COMMAND_MAX_LEN 32
-#define LINENOISE_PASTE_KEY_DELAY 30 /* Delay, in milliseconds, between two characters being pasted from clipboard */
+#define LINENOISE_PASTE_KEY_DELAY 50 /* Delay, in milliseconds, between two characters being pasted from clipboard */
 
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
@@ -231,6 +231,26 @@ static void flushWrite(void) {
     }
 #endif
     fsync(fileno(stdout));
+}
+
+static int read_with_timeout(int fd, char* buf, size_t need, int timeout_ms) {
+    fd_set rfds;
+    struct timeval tv;
+    size_t got = 0;
+
+    while (got < need) {
+        FD_ZERO(&rfds);
+        FD_SET(fd, &rfds);
+        tv.tv_sec = timeout_ms / 1000;
+        tv.tv_usec = (timeout_ms % 1000) * 1000;
+
+        int rv = select(fd + 1, &rfds, NULL, NULL, &tv);
+        if (rv <= 0) break;
+        int r = read(fd, buf + got, need - got);
+        if (r <= 0) break;
+        got += r;
+    }
+    return (int)got;
 }
 
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
@@ -976,7 +996,7 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
             break;
         case ESC:    /* escape sequence */
             /* Read the next two bytes representing the escape sequence. */
-            if (read(in_fd, seq, 2) < 2) {
+            if (read_with_timeout(in_fd, seq, 2, 5) < 2) {
                 break;
             }
 
